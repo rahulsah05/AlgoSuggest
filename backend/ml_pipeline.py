@@ -2,7 +2,7 @@ import warnings
 import pandas as pd
 import numpy as np
 
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import GridSearchCV
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
 
@@ -30,9 +30,23 @@ def _detect_problem_type(y_raw):
     return "classification"
 
 
+# ✅ NEW HELPER FUNCTION
+def get_target_column(df, user_target=None):
+    if user_target and user_target in df.columns:
+        return user_target
+
+    keywords = ["target", "label", "class", "price"]
+
+    for col in df.columns:
+        if col.lower() in keywords:
+            return col
+
+    return df.columns[-1]
+
+
 # ------------------ main ------------------
 
-def run_pipeline(file_path):
+def run_pipeline(file_path, target_col=None):
 
     # ---------- LOAD ----------
     df = pd.read_csv(file_path)
@@ -51,7 +65,10 @@ def run_pipeline(file_path):
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
     # ---------- TARGET ----------
-    target_col = df.columns[-1]
+    target_col = get_target_column(df, target_col)
+
+    if target_col not in df.columns:
+        return {"error": f"Target column '{target_col}' not found"}
 
     y_raw = df[target_col]
     X = df.drop(columns=[target_col])
@@ -60,14 +77,8 @@ def run_pipeline(file_path):
         return {"error": "No usable features"}
 
     X = X.apply(pd.to_numeric, errors="coerce")
-
-    # replace bad values
     X = X.replace([np.inf, -np.inf], np.nan)
-
-    # fill everything
     X = X.fillna(0)
-
-    # ensure numeric type
     X = X.astype(float)
 
     # ---------- PROBLEM TYPE ----------
@@ -87,44 +98,100 @@ def run_pipeline(file_path):
         if y.std() == 0:
             return {"error": "Target has no variation"}
 
-    # ---------- FINAL SAFETY CHECK ----------
+    # ---------- FINAL CHECK ----------
     if X.isna().any().any():
         return {"error": "Invalid values remain in features"}
 
-    # ---------- TRAIN ----------
+    # ---------- TRAIN WITH GRIDSEARCH ----------
     results = {}
+    best_models = {}
 
     try:
         if problem_type == "regression":
 
             models = {
-                "LinearRegression": LinearRegression(),
-                "Ridge": Ridge(),
-                "RandomForest": RandomForestRegressor(n_estimators=50)
+                "LinearRegression": (LinearRegression(), {}),
+                "Ridge": (
+                    Ridge(),
+                    {
+                        "alpha": [0.1, 1.0, 10.0]
+                    }
+                ),
+                "RandomForest": (
+                    RandomForestRegressor(),
+                    {
+                        "n_estimators": [50, 100],
+                        "max_depth": [None, 10],
+                        "min_samples_split": [2, 5]
+                    }
+                )
             }
 
-            for name, model in models.items():
+            for name, (model, params) in models.items():
                 try:
-                    scores = cross_val_score(model, X, y, cv=3, scoring="r2")
-                    results[name] = round(scores.mean(), 4)
+                    grid = GridSearchCV(
+                        model,
+                        params,
+                        cv=3,
+                        scoring="r2",
+                        n_jobs=-1
+                    )
+                    grid.fit(X, y)
+
+                    results[name] = round(grid.best_score_, 4)
+                    best_models[name] = {
+                        "model": grid.best_estimator_,
+                        "params": grid.best_params_
+                    }
+
                 except:
                     results[name] = None
 
         else:
 
             models = {
-                "LogisticRegression": Pipeline([
-                    ("scaler", StandardScaler()),
-                    ("model", LogisticRegression(max_iter=1000))
-                ]),
-                "DecisionTree": DecisionTreeClassifier(),
-                "RandomForest": RandomForestClassifier(n_estimators=50)
+                "LogisticRegression": (
+                    Pipeline([
+                        ("scaler", StandardScaler()),
+                        ("model", LogisticRegression(max_iter=1000))
+                    ]),
+                    {
+                        "model__C": [0.1, 1, 10]
+                    }
+                ),
+                "DecisionTree": (
+                    DecisionTreeClassifier(),
+                    {
+                        "max_depth": [None, 10, 20],
+                        "min_samples_split": [2, 5]
+                    }
+                ),
+                "RandomForest": (
+                    RandomForestClassifier(),
+                    {
+                        "n_estimators": [50, 100],
+                        "max_depth": [None, 10],
+                        "min_samples_split": [2, 5]
+                    }
+                )
             }
 
-            for name, model in models.items():
+            for name, (model, params) in models.items():
                 try:
-                    scores = cross_val_score(model, X, y, cv=3)
-                    results[name] = round(scores.mean(), 4)
+                    grid = GridSearchCV(
+                        model,
+                        params,
+                        cv=3,
+                        n_jobs=-1
+                    )
+                    grid.fit(X, y)
+
+                    results[name] = round(grid.best_score_, 4)
+                    best_models[name] = {
+                        "model": grid.best_estimator_,
+                        "params": grid.best_params_
+                    }
+
                 except:
                     results[name] = None
 
@@ -161,6 +228,8 @@ def run_pipeline(file_path):
     best_algo = next(iter(sorted_results))
     best_score = sorted_results[best_algo]
 
+    best_params = best_models.get(best_algo, {}).get("params", {})
+
     # ---------- WARNINGS ----------
     warning = None
     if problem_type == "regression" and best_score < 0.2:
@@ -171,6 +240,7 @@ def run_pipeline(file_path):
     return {
         "type": problem_type,
         "best_algorithm": best_algo,
+        "best_params": best_params,
         "score": best_score,
         "results": sorted_results,
         "n_features": X.shape[1],

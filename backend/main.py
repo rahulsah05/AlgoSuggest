@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 import shutil
 import os
@@ -21,7 +21,10 @@ def home():
 
 
 @app.post("/train")
-async def train(file: UploadFile = File(...)):
+async def train(
+    file: UploadFile = File(...),
+    target: str = Form(None)
+):
     file_path = f"temp_{file.filename}"
 
     try:
@@ -30,7 +33,7 @@ async def train(file: UploadFile = File(...)):
             shutil.copyfileobj(file.file, buffer)
 
         # run ML pipeline
-        result = run_pipeline(file_path)
+        result = run_pipeline(file_path, target)
 
         # pass through pipeline errors directly
         if isinstance(result, dict) and "error" in result:

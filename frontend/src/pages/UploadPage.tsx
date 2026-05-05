@@ -17,9 +17,13 @@ const UploadPage = () => {
   const [dragging, setDragging] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
+
+  // ✅ NEW STATES
+  const [columns, setColumns] = useState<string[]>([]);
+  const [target, setTarget] = useState("");
+
   const navigate = useNavigate();
 
-  // Cycle through loading step messages so the user sees progress
   const startLoadingCycle = () => {
     setLoadingStep(0);
     let step = 0;
@@ -38,7 +42,19 @@ const UploadPage = () => {
     e.preventDefault();
     setDragging(false);
     const dropped = e.dataTransfer.files[0];
-    if (dropped) setFile(dropped);
+    if (dropped) {
+      setFile(dropped);
+
+      // ✅ EXTRACT COLUMNS
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target?.result as string;
+        const firstLine = text.split("\n")[0];
+        const cols = firstLine.split(",").map(col => col.trim());
+        setColumns(cols);
+      };
+      reader.readAsText(dropped);
+    }
   };
 
   const handleAnalyze = async () => {
@@ -47,12 +63,14 @@ const UploadPage = () => {
     const formData = new FormData();
     formData.append("file", file);
 
+    // ✅ SEND TARGET
+    formData.append("target", target);
+
     setIsLoading(true);
     const interval = startLoadingCycle();
 
     try {
       const res = await axios.post("http://localhost:8000/train", formData, {
-        // Long timeout — large datasets can take a while
         timeout: 120_000,
       });
 
@@ -94,7 +112,6 @@ const UploadPage = () => {
           </p>
         </div>
 
-        {/* Drop zone — disabled while loading */}
         <div
           onDragOver={(e) => { if (!isLoading) { e.preventDefault(); setDragging(true); } }}
           onDragLeave={() => setDragging(false)}
@@ -116,7 +133,22 @@ const UploadPage = () => {
             className="hidden"
             accept=".csv,.xlsx,.json,.txt,.parquet"
             disabled={isLoading}
-            onChange={(e) => e.target.files?.[0] && setFile(e.target.files[0])}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) {
+                setFile(f);
+
+                // ✅ EXTRACT COLUMNS
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                  const text = event.target?.result as string;
+                  const firstLine = text.split("\n")[0];
+                  const cols = firstLine.split(",").map(col => col.trim());
+                  setColumns(cols);
+                };
+                reader.readAsText(f);
+              }
+            }}
           />
 
           <Upload className="h-8 w-8 text-primary mb-4" />
@@ -133,7 +165,24 @@ const UploadPage = () => {
           </p>
         </div>
 
-        {/* File info + Analyze button */}
+        {/* ✅ TARGET DROPDOWN */}
+        {columns.length > 0 && !isLoading && (
+          <div className="glass-card p-4">
+            <label className="text-sm font-medium text-foreground">
+              Select Target Column
+            </label>
+            <select
+              className="mt-2 w-full p-2 rounded-md bg-secondary text-foreground"
+              onChange={(e) => setTarget(e.target.value)}
+            >
+              <option value="">Auto Detect</option>
+              {columns.map((col, i) => (
+                <option key={i} value={col}>{col}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {file && !isLoading && (
           <div className="glass-card p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -147,7 +196,6 @@ const UploadPage = () => {
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Clear file */}
               <button
                 onClick={() => setFile(null)}
                 className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground"
@@ -166,7 +214,6 @@ const UploadPage = () => {
           </div>
         )}
 
-        {/* Loading state card — replaces the file card while running */}
         {isLoading && (
           <div className="glass-card p-5 border-primary/20">
             <div className="flex items-center gap-4">
@@ -184,7 +231,6 @@ const UploadPage = () => {
               </div>
             </div>
 
-            {/* Animated progress bar */}
             <div className="mt-4 bg-secondary rounded-full h-1.5 overflow-hidden">
               <div
                 className="bg-primary h-full rounded-full transition-all duration-[3500ms] ease-in-out"
