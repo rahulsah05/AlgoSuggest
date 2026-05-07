@@ -30,12 +30,12 @@ def _detect_problem_type(y_raw):
     return "classification"
 
 
-# ✅ NEW HELPER FUNCTION
+# -------------TARGETED COLUMN FUNCTION-------------
 def get_target_column(df, user_target=None):
     if user_target and user_target in df.columns:
         return user_target
 
-    keywords = ["target", "label", "class", "price"]
+    keywords = ["target", "label", "class", "price", "output", "result", "prediction", "predicted", "response", "outcome", "status", "category", "type", "score", "grade", "sales", "profit", "revenue", "churn", "diagnosis", "disease", "risk", "fraud", "default", "approved", "purchase", "purchased", "survived"]
 
     for col in df.columns:
         if col.lower() in keywords:
@@ -102,7 +102,7 @@ def run_pipeline(file_path, target_col=None):
     if X.isna().any().any():
         return {"error": "Invalid values remain in features"}
 
-    # ---------- TRAIN WITH GRIDSEARCH ----------
+    # ----------GRIDSEARCH ----------
     results = {}
     best_models = {}
 
@@ -120,28 +120,45 @@ def run_pipeline(file_path, target_col=None):
                 "RandomForest": (
                     RandomForestRegressor(),
                     {
-                        "n_estimators": [50, 100],
-                        "max_depth": [None, 10],
-                        "min_samples_split": [2, 5]
+                        "n_estimators": [10, 50, 100, 200, 500],
+                        "max_depth": [None, 5, 10, 20, 50],
+                        "min_samples_split": [2, 5, 10]
                     }
                 )
             }
 
             for name, (model, params) in models.items():
                 try:
-                    grid = GridSearchCV(
-                        model,
-                        params,
-                        cv=3,
-                        scoring="r2",
-                        n_jobs=-1
-                    )
-                    grid.fit(X, y)
 
-                    results[name] = round(grid.best_score_, 4)
+                    cv_values = [3, 5, 10]
+
+                    best_cv_score = -999
+                    best_grid = None
+                    best_cv = None
+
+                    for cv_value in cv_values:
+
+                        grid = GridSearchCV(
+                            model,
+                            params,
+                            cv=cv_value,
+                            scoring="r2",
+                            n_jobs=-1
+                        )
+
+                        grid.fit(X, y)
+
+                        if grid.best_score_ > best_cv_score:
+                            best_cv_score = grid.best_score_
+                            best_grid = grid
+                            best_cv = cv_value
+
+                    results[name] = round(best_cv_score, 4)
+
                     best_models[name] = {
-                        "model": grid.best_estimator_,
-                        "params": grid.best_params_
+                        "model": best_grid.best_estimator_,
+                        "params": best_grid.best_params_,
+                        "best_cv": best_cv
                     }
 
                 except:
@@ -169,27 +186,44 @@ def run_pipeline(file_path, target_col=None):
                 "RandomForest": (
                     RandomForestClassifier(),
                     {
-                        "n_estimators": [50, 100],
-                        "max_depth": [None, 10],
-                        "min_samples_split": [2, 5]
+                        "n_estimators": [10, 50, 100, 200, 500],
+                        "max_depth": [None, 5, 10, 20, 50],
+                        "min_samples_split": [2, 5, 10]
                     }
                 )
             }
 
             for name, (model, params) in models.items():
                 try:
-                    grid = GridSearchCV(
-                        model,
-                        params,
-                        cv=3,
-                        n_jobs=-1
-                    )
-                    grid.fit(X, y)
 
-                    results[name] = round(grid.best_score_, 4)
+                    cv_values = [3, 5, 10]
+
+                    best_cv_score = -999
+                    best_grid = None
+                    best_cv = None
+
+                    for cv_value in cv_values:
+
+                        grid = GridSearchCV(
+                            model,
+                            params,
+                            cv=cv_value,
+                            n_jobs=-1
+                        )
+
+                        grid.fit(X, y)
+
+                        if grid.best_score_ > best_cv_score:
+                            best_cv_score = grid.best_score_
+                            best_grid = grid
+                            best_cv = cv_value
+
+                    results[name] = round(best_cv_score, 4)
+
                     best_models[name] = {
-                        "model": grid.best_estimator_,
-                        "params": grid.best_params_
+                        "model": best_grid.best_estimator_,
+                        "params": best_grid.best_params_,
+                        "best_cv": best_cv
                     }
 
                 except:
